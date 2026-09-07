@@ -1,0 +1,19 @@
+# ---------------------------------------------------
+# 1. Rust & Cargo (Fuzzer)
+# ---------------------------------------------------
+Fuzzer/target/
+**/*.rs.bk
+
+Tests/if_nest
+
+crashes/
+corpus/
+hangs/
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+.vscode/
+.idea/
+.DS_Store
