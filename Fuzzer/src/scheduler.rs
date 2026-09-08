@@ -8,7 +8,6 @@ use libafl::{
 use std::fs;
 use std::{collections::HashMap, fs::File, io::BufReader, path::Path, sync::Arc};
 type DistanceMap = HashMap<String, u32>;
-
 pub struct DirectedDistanceScheduler {
     pub distances: Arc<DistanceMap>,
     pub seed_distances: HashMap<CorpusId, f64>,

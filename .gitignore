@@ -1,11 +1,9 @@
-# ---------------------------------------------------
-# 1. Rust & Cargo (Fuzzer)
-# ---------------------------------------------------
 Fuzzer/target/
 **/*.rs.bk
 
 Tests/if_nest
 
+Fuzzer/crashes/
 crashes/
 corpus/
 hangs/

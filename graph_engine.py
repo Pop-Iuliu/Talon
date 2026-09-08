@@ -1,69 +1,54 @@
+import argparse
+import json
 import angr
 import networkx as nx
-import json
-import argparse
-import sys
 
 def main():
-    parser = argparse.ArgumentParser(description="Sprint 1: Static Graph Engine for DGF")
-    parser.add_argument("binary", help="Path to the target binary")
-    parser.add_argument("target", help="Target basic block address (hex)", type=lambda x: int(x, 16))
+    parser = argparse.ArgumentParser(description="Talon CFG Distance Engine")
+    parser.add_argument("binary", help="Path to target .so / ELF")
+    parser.add_argument("target_symbol", help="Target function or block symbol name")
     args = parser.parse_args()
 
     print(f"[+] Loading binary: {args.binary}")
-    p = angr.Project(args.binary, load_options={'auto_load_libs': False})
+    p = angr.Project(args.binary, auto_load_libs=False, main_opts={'base_addr': 0})
 
-    print("[+] Generating Inter-procedural CFG (CFGFast)...")
+    print("[+] Building complete CFGFast...")
     cfg = p.analyses.CFGFast(normalize=True)
 
-    if hasattr(cfg.model.graph, "to_networkx"):
-        graph = cfg.model.graph.to_networkx()
-    else:
-        graph = cfg.graph.to_networkx()
+    symbol = p.loader.find_symbol(args.target_symbol)
+    if not symbol:
+        print(f"[-] Error: Symbol '{args.target_symbol}' not found!")
+        return
 
-    target_node = cfg.model.get_any_node(args.target, anyaddr=True)
+    target_addr = symbol.rebased_addr
+    print(f"[+] Target symbol '{args.target_symbol}' address: {hex(target_addr)}")
+
+    target_node = cfg.model.get_any_node(target_addr)
     if not target_node:
-        print(f"[-] Error: Target address {hex(args.target)} not found in CFG.")
-        sys.exit(1)
+        nodes = [n for n in cfg.graph.nodes() if hasattr(n, 'addr') and n.addr <= target_addr < n.addr + n.size]
+        target_node = nodes[0] if nodes else None
 
-    print(f"[+] Target node found ({hex(target_node.addr)}). Calculating distances...")
-
-    reversed_graph = graph.reverse()
-
-    try:
-        lengths = nx.single_source_shortest_path_length(reversed_graph, target_node)
-    except Exception as e:
-        print(f"[-] Error calculating paths: {e}")
-        sys.exit(1)
+    if not target_node:
+        print(f"[-] Error: Target block at {hex(target_addr)} not found in CFG!")
+        return
 
     distances = {}
-    for node, dist in lengths.items():
-        if node.addr:
-            addr_str = hex(node.addr)
-            if addr_str not in distances or dist < distances[addr_str]:
-                distances[addr_str] = dist
+
+    G = nx.DiGraph(cfg.graph)
+
+    for node in cfg.graph.nodes():
+        if not hasattr(node, 'addr'):
+            continue
+        try:
+            length = nx.shortest_path_length(G, source=node, target=target_node)
+            distances[hex(node.addr)] = int(length)
+        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            continue
 
     with open("distances.json", "w") as f:
         json.dump(distances, f, indent=4)
-    print(f"[+] Saved distances for {len(distances)} basic blocks to distances.json")
 
-    main_sym = p.loader.main_object.get_symbol("main")
-    if main_sym:
-        main_node = cfg.model.get_any_node(main_sym.rebased_addr, anyaddr=True)
-        if main_node and main_node in lengths:
-            dist_from_main = lengths[main_node]
-            print(f"\n[+] --- Path Analysis ---")
-            print(f"[+] Distance from main() to target: {dist_from_main} blocks")
-            try:
-                path = nx.shortest_path(graph, main_node, target_node)
-                print("[+] Shortest path sequence:")
-                for n in path:
-                    func_name = n.name if hasattr(n, 'name') and n.name else "unknown"
-                    print(f"    -> {hex(n.addr)} (Func: {func_name})")
-            except nx.NetworkXNoPath:
-                print("[-] No direct path found from main() to target.")
-        else:
-            print("[-] main() cannot reach the target block.")
+    print(f"[+] Successfully wrote {len(distances)} block distances to distances.json")
 
 if __name__ == "__main__":
     main()

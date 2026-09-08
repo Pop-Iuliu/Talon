@@ -22,9 +22,15 @@ use libafl::{
 use libafl_bolts::{rands::StdRand, tuples::tuple_list};
 use serde::Deserialize;
 mod scheduler;
+use libafl::executors::ExitKind;
 use scheduler::DirectedDistanceScheduler;
 
+extern "C" {
+    fn target_function(data: *const u8, size: usize);
+}
+
 const MAP_SIZE: usize = 65536;
+#[no_mangle]
 static mut SIGNALS: [u8; MAP_SIZE] = [0; MAP_SIZE];
 
 #[derive(Debug, Deserialize)]
@@ -69,24 +75,12 @@ fn main() -> Result<(), Error> {
         let buf = bytes.as_ref();
 
         unsafe {
-            SIGNALS.fill(0);
+            std::ptr::write_bytes(std::ptr::addr_of_mut!(SIGNALS) as *mut u8, 0, MAP_SIZE);
+
+            target_function(buf.as_ptr(), buf.len());
         }
 
-        if buf.len() >= 5 {
-            unsafe {
-                SIGNALS[0x1149 % MAP_SIZE] += 1;
-                if buf[0] == b'T' {
-                    SIGNALS[0x1162 % MAP_SIZE] += 1;
-                    if buf[1] == b'A' {
-                        SIGNALS[0x116c % MAP_SIZE] += 1;
-                        if buf[2] == b'L' {
-                            return libafl::executors::ExitKind::Crash;
-                        }
-                    }
-                }
-            }
-        }
-        libafl::executors::ExitKind::Ok
+        ExitKind::Ok
     };
 
     #[allow(deprecated)]
