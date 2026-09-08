@@ -1,61 +1,93 @@
-use libafl::prelude::*;
-use serde_json::Value;
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
+use libafl::{
+    corpus::{Corpus, CorpusId},
+    inputs::BytesInput,
+    schedulers::Scheduler,
+    state::HasCorpus,
+    Error,
+};
+use std::{collections::HashMap, fs::File, io::BufReader, path::Path, sync::Arc};
 
-pub struct DirectedScheduler {
-    pub distances: HashMap<usize, f64>,
-    pub temperature: f64,
+pub struct DirectedDistanceScheduler {
+    pub distances: Arc<HashMap<usize, f64>>,
+    start_time: std::time::Instant,
+    cooling_time_secs: f64,
 }
 
-impl DirectedScheduler {
-    pub fn new(json_path: &str, initial_temp: f64) -> Self {
-        let file = File::open(json_path).expect("Nu am putut deschide distances.json");
+impl DirectedDistanceScheduler {
+    pub fn new<P: AsRef<Path>>(path: P, cooling_time_secs: f64) -> Self {
+        let file = File::open(path)
+            .unwrap_or_else(|_| panic!("Nu s-a putut deschide fisierul de distante!"));
         let reader = BufReader::new(file);
-        let raw_json: HashMap<String, u32> =
-            serde_json::from_reader(reader).expect("Eroare la parsarea JSON-ului");
-
-        let mut distances = HashMap::new();
-        for (addr_hex, dist) in raw_json {
-            let clean_hex = addr_hex.trim_start_matches("0x");
-            if let Ok(addr) = usize::from_str_radix(clean_hex, 16) {
-                distances.insert(addr, dist as f64);
-            }
-        }
+        let distances: HashMap<usize, f64> = serde_json::from_reader(reader)
+            .unwrap_or_else(|_| panic!("Eroare la parsarea JSON-ului de distante!"));
 
         Self {
-            distances,
-            temperature: initial_temp,
+            distances: Arc::new(distances),
+            start_time: std::time::Instant::now(),
+            cooling_time_secs,
         }
     }
 
-    pub fn calculate_seed_distance(&self, hit_blocks: &[usize]) -> f64 {
-        let mut sum_reciprocal = 0.0;
-        let mut count = 0.0;
+    fn current_temperature(&self) -> f64 {
+        let elapsed = self.start_time.elapsed().as_secs_f64();
+        if elapsed >= self.cooling_time_secs {
+            0.01
+        } else {
+            1.0 - (elapsed / self.cooling_time_secs)
+        }
+    }
 
-        for block in hit_blocks {
-            if let Some(&dist) = self.distances.get(block) {
-                let safe_dist = if dist == 0.0 { 0.1 } else { dist };
-                sum_reciprocal += 1.0 / safe_dist;
-                count += 1.0;
+    pub fn calculate_seed_distance(&self, signals: &[u8]) -> f64 {
+        let mut total_dist = 0.0;
+        let mut count = 0;
+
+        for (addr, &hit) in signals.iter().enumerate() {
+            if hit > 0 {
+                if let Some(&d) = self.distances.get(&addr) {
+                    total_dist += d;
+                    count += 1;
+                }
             }
         }
 
-        if count == 0.0 {
-            return 1000.0; // daca nu atinge nimic, penalizat maxim
+        if count == 0 {
+            1.0
+        } else {
+            total_dist / count as f64
         }
-
-        count / sum_reciprocal
     }
 
-    // p(s) = (1 / d(s))^(1/T)
-    pub fn calculate_energy(&self, distance: f64) -> u32 {
-        let inv_dist = 1.0 / distance;
-        let power = 1.0 / self.temperature;
+    pub fn calculate_energy(&self, norm_distance: f64, base_energy: usize) -> usize {
+        let t = self.current_temperature();
+        let factor = ((1.0 - norm_distance) * (1.0 - t) + 0.5 * t).powi(2);
+        ((base_energy as f64) * factor).max(1.0) as usize
+    }
+}
 
-        let raw_energy = inv_dist.powf(power) * 100.0;
+impl<S> Scheduler<BytesInput, S> for DirectedDistanceScheduler
+where
+    S: HasCorpus<BytesInput>,
+{
+    fn on_add(&mut self, _state: &mut S, _idx: CorpusId) -> Result<(), Error> {
+        Ok(())
+    }
 
-        (raw_energy as u32).clamp(1, 1000)
+    fn next(&mut self, state: &mut S) -> Result<CorpusId, Error> {
+        let corpus = state.corpus();
+        if corpus.count() == 0 {
+            return Err(Error::empty("Corpus-ul este gol!"));
+        }
+
+        corpus
+            .first()
+            .ok_or_else(|| Error::empty("Corpus-ul este gol!"))
+    }
+
+    fn set_current_scheduled(
+        &mut self,
+        _state: &mut S,
+        _next_idx: Option<CorpusId>,
+    ) -> Result<(), Error> {
+        Ok(())
     }
 }
