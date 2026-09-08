@@ -5,10 +5,13 @@ use libafl::{
     state::HasCorpus,
     Error,
 };
+use std::fs;
 use std::{collections::HashMap, fs::File, io::BufReader, path::Path, sync::Arc};
+type DistanceMap = HashMap<String, u32>;
 
 pub struct DirectedDistanceScheduler {
-    pub distances: Arc<HashMap<usize, f64>>,
+    pub distances: Arc<DistanceMap>,
+    pub seed_distances: HashMap<CorpusId, f64>,
     start_time: std::time::Instant,
     cooling_time_secs: f64,
 }
@@ -18,11 +21,15 @@ impl DirectedDistanceScheduler {
         let file = File::open(path)
             .unwrap_or_else(|_| panic!("Nu s-a putut deschide fisierul de distante!"));
         let reader = BufReader::new(file);
-        let distances: HashMap<usize, f64> = serde_json::from_reader(reader)
-            .unwrap_or_else(|_| panic!("Eroare la parsarea JSON-ului de distante!"));
+        let json_content = fs::read_to_string("distances.json").expect("Failed to read JSON file");
+        let distances: DistanceMap = match serde_json::from_str(&json_content) {
+            Ok(data) => data,
+            Err(e) => panic!("Eroare la parsarea JSON-ului de distante! Detalii: {}", e),
+        };
 
         Self {
             distances: Arc::new(distances),
+            seed_distances: HashMap::new(),
             start_time: std::time::Instant::now(),
             cooling_time_secs,
         }
@@ -43,8 +50,8 @@ impl DirectedDistanceScheduler {
 
         for (addr, &hit) in signals.iter().enumerate() {
             if hit > 0 {
-                if let Some(&d) = self.distances.get(&addr) {
-                    total_dist += d;
+                if let Some(&d) = self.distances.get(&addr.to_string()) {
+                    total_dist += d as f64;
                     count += 1;
                 }
             }
@@ -78,9 +85,24 @@ where
             return Err(Error::empty("Corpus-ul este gol!"));
         }
 
-        corpus
-            .first()
-            .ok_or_else(|| Error::empty("Corpus-ul este gol!"))
+        let fallback_id = corpus.last().unwrap_or_else(|| corpus.first().unwrap());
+        let t = self.current_temperature();
+
+        if t > 0.8 || self.seed_distances.is_empty() {
+            return Ok(fallback_id);
+        }
+
+        let mut best_id = fallback_id;
+        let mut min_dist = f64::MAX;
+
+        for (&id, &dist) in self.seed_distances.iter() {
+            if dist < min_dist {
+                min_dist = dist;
+                best_id = id;
+            }
+        }
+
+        Ok(best_id)
     }
 
     fn set_current_scheduled(
