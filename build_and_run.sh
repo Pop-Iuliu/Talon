@@ -1,28 +1,47 @@
-#!/usr/bin/env bash
-set -e
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+fuser -k 1337/tcp 2>/dev/null || true
+pkill -9 -f dgf_core 2>/dev/null || true
 
-ROOT_DIR=$(pwd)
-TESTS_DIR="$ROOT_DIR/Tests"
-FUZZER_DIR="$ROOT_DIR/Fuzzer"
+clear
 
-echo "=========================================="
-echo "[+] Starting Talon Pipeline Orchestration"
-echo "=========================================="
+echo -e "${CYAN}"
+cat << "EOF"
+ _____  ___   _      _____  _   _ 
+|_   _|/ _ \ | |    |  _  || \ | |
+  | | / /_\ \| |    | | | ||  \| |
+  | | |  _  || |____| |_| || |\  |
+  \_/ \_| |_/\_____/\_____/\_| \_/
+     Directed Greybox Fuzzer
+EOF
+echo -e "${NC}"
 
-echo "[1/4] Compiling C target (if_nest.c) -> libif_nest.so..."
-gcc -shared -fPIC -g -o "$TESTS_DIR/libif_nest.so" "$TESTS_DIR/if_nest.c"
-cp "$TESTS_DIR/libif_nest.so" "$FUZZER_DIR/"
+echo -e "${BLUE}[*] Starting Talon Pipeline Orchestration...${NC}\n"
 
-echo "[2/4] Extracting CFG Distances via graph_engine.py..."
-python3 "$ROOT_DIR/graph_engine.py" "$TESTS_DIR/libif_nest.so" "target_function"
-
-if [ -f "$ROOT_DIR/distances.json" ]; then
-    cp "$ROOT_DIR/distances.json" "$FUZZER_DIR/distances.json"
+echo -e "${YELLOW}[1/3] Compiling target...${NC}"
+gcc -shared -fPIC Tests/if_nest.c -o Tests/libif_nest.so
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}  [✔] Target compiled successfully (libif_nest.so)${NC}\n"
+else
+    echo -e "${RED}  [✘] Compilation failed!${NC}"
+    exit 1
 fi
 
-echo "[3/4] Launching Talon Directed Fuzzer..."
-echo "=========================================="
-export LD_LIBRARY_PATH="$TESTS_DIR:$FUZZER_DIR:$LD_LIBRARY_PATH"
+echo -e "${YELLOW}[2/3] Extracting CFG Distances...${NC}"
+python graph_engine.py Tests/libif_nest.so target_function
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}  [✔] Distance extraction complete${NC}\n"
+else
+    echo -e "${RED}  [✘] Graph Engine failed!${NC}"
+    exit 1
+fi
 
-cd "$FUZZER_DIR"
-cargo run
+echo -e "${YELLOW}[3/3] Launching LibAFL Engine...${NC}"
+export LD_LIBRARY_PATH="$(pwd)/Tests:$LD_LIBRARY_PATH"
+
+cd Fuzzer && cargo run
