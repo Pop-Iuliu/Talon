@@ -20,29 +20,32 @@ def main():
         print(f"[-] Error: Symbol '{args.target_symbol}' not found!")
         return
 
-    target_addr = symbol.rebased_addr
-    print(f"[+] Target symbol '{args.target_symbol}' address: {hex(target_addr)}")
+    func_addr = symbol.rebased_addr
+    print(f"[+] Function '{args.target_symbol}' entry address: {hex(func_addr)}")
 
-    target_node = cfg.model.get_any_node(target_addr)
-    if not target_node:
-        nodes = [n for n in cfg.graph.nodes() if hasattr(n, 'addr') and n.addr <= target_addr < n.addr + n.size]
-        target_node = nodes[0] if nodes else None
-
-    if not target_node:
-        print(f"[-] Error: Target block at {hex(target_addr)} not found in CFG!")
+    func = cfg.functions.get(func_addr)
+    if not func:
+        print(f"[-] Error: Function at {hex(func_addr)} not analyzed in CFG!")
         return
 
+    pure_graph = nx.DiGraph()
+    for block in func.blocks:
+        pure_graph.add_node(block.addr)
+
+    for src, dst in func.graph.edges():
+        pure_graph.add_edge(src.addr, dst.addr)
+
+    end_nodes = [node for node in pure_graph.nodes() if pure_graph.out_degree(node) == 0]
+    target_block_addr = end_nodes[0] if end_nodes else max(pure_graph.nodes())
+
+    print(f"[+] Selected target basic block inside function: {hex(target_block_addr)}")
+
     distances = {}
-
-    G = nx.DiGraph(cfg.graph)
-
-    for node in cfg.graph.nodes():
-        if not hasattr(node, 'addr'):
-            continue
+    for node_addr in pure_graph.nodes():
         try:
-            length = nx.shortest_path_length(G, source=node, target=target_node)
-            distances[hex(node.addr)] = int(length)
-        except (nx.NetworkXNoPath, nx.NodeNotFound):
+            length = nx.shortest_path_length(pure_graph, source=node_addr, target=target_block_addr)
+            distances[hex(node_addr)] = int(length)
+        except nx.NetworkXNoPath:
             continue
 
     with open("distances.json", "w") as f:
