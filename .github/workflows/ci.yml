@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain
+      - name: Compile fuzz target
+        run: gcc -shared -fPIC Tests/if_nest.c -o Tests/libif_nest.so
+      - name: Format
+        run: cargo fmt --check
+        working-directory: Fuzzer
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+        working-directory: Fuzzer
+      - name: Build (zero warnings)
+        run: RUSTFLAGS="-Dwarnings" cargo build --release
+        working-directory: Fuzzer
+      - name: Test
+        run: cargo test
+        working-directory: Fuzzer
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Compile fuzz target
+        run: gcc -shared -fPIC Tests/if_nest.c -o Tests/libif_nest.so
+      - name: Smoke run graph engine
+        run: |
+          python3 graph_engine.py Tests/libif_nest.so target_function --out distances_ci.json
+          python3 -c "import json; d = json.load(open('distances_ci.json')); assert d, 'empty distance map'; print('loaded', len(d), 'distances')"
