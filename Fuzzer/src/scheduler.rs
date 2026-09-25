@@ -5,9 +5,10 @@ use libafl::{
     state::HasCorpus,
     Error,
 };
-use std::fs;
-use std::{collections::HashMap, fs::File, io::BufReader, path::Path, sync::Arc};
+use std::{collections::HashMap, fs, path::Path, sync::Arc};
+
 type DistanceMap = HashMap<String, u32>;
+
 pub struct DirectedDistanceScheduler {
     pub distances: Arc<DistanceMap>,
     pub seed_distances: HashMap<CorpusId, f64>,
@@ -16,22 +17,29 @@ pub struct DirectedDistanceScheduler {
 }
 
 impl DirectedDistanceScheduler {
-    pub fn new<P: AsRef<Path>>(path: P, cooling_time_secs: f64) -> Self {
-        let file = File::open(path)
-            .unwrap_or_else(|_| panic!("Nu s-a putut deschide fisierul de distante!"));
-        let reader = BufReader::new(file);
-        let json_content = fs::read_to_string("distances.json").expect("Failed to read JSON file");
-        let distances: DistanceMap = match serde_json::from_str(&json_content) {
-            Ok(data) => data,
-            Err(e) => panic!("Eroare la parsarea JSON-ului de distante! Detalii: {}", e),
-        };
+    pub fn new<P: AsRef<Path>>(path: P, cooling_time_secs: f64) -> Result<Self, Error> {
+        let path = path.as_ref();
+        let json = fs::read_to_string(path).map_err(|e| {
+            Error::os_error(e, format!("failed to read distance map {}", path.display()))
+        })?;
+        let distances: DistanceMap = serde_json::from_str(&json).map_err(|e| {
+            Error::unknown(format!(
+                "failed to parse distance map {}: {e}",
+                path.display()
+            ))
+        })?;
+        println!(
+            "directed scheduler: loaded {} distances from {}",
+            distances.len(),
+            path.display()
+        );
 
-        Self {
+        Ok(Self {
             distances: Arc::new(distances),
             seed_distances: HashMap::new(),
             start_time: std::time::Instant::now(),
             cooling_time_secs,
-        }
+        })
     }
 
     fn current_temperature(&self) -> f64 {
@@ -43,6 +51,8 @@ impl DirectedDistanceScheduler {
         }
     }
 
+    // Wired into the scheduler in Sprint 3 (VI-1).
+    #[allow(dead_code)]
     pub fn calculate_seed_distance(&self, signals: &[u8]) -> f64 {
         let mut total_dist = 0.0;
         let mut count = 0;
@@ -63,6 +73,8 @@ impl DirectedDistanceScheduler {
         }
     }
 
+    // Wired into scoring in Sprint 3 (VI-3).
+    #[allow(dead_code)]
     pub fn calculate_energy(&self, norm_distance: f64, base_energy: usize) -> usize {
         let t = self.current_temperature();
         let factor = ((1.0 - norm_distance) * (1.0 - t) + 0.5 * t).powi(2);
@@ -81,7 +93,7 @@ where
     fn next(&mut self, state: &mut S) -> Result<CorpusId, Error> {
         let corpus = state.corpus();
         if corpus.count() == 0 {
-            return Err(Error::empty("Corpus-ul este gol!"));
+            return Err(Error::empty("corpus is empty"));
         }
 
         let fallback_id = corpus.last().unwrap_or_else(|| corpus.first().unwrap());
