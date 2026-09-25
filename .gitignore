@@ -8,6 +8,10 @@ crashes/
 corpus/
 hangs/
 
+*.so
+distances.json
+
+.omo/
 __pycache__/
 *.py[cod]
 *$py.class

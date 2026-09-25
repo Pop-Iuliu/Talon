@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use libafl::{
@@ -16,7 +15,6 @@ use libafl::{
     Error,
 };
 use libafl_bolts::{current_nanos, rands::StdRand, tuples::tuple_list};
-use serde::Deserialize;
 
 mod scheduler;
 use scheduler::DirectedDistanceScheduler;
@@ -29,12 +27,8 @@ const MAP_SIZE: usize = 65536;
 #[no_mangle]
 static mut SIGNALS: [u8; MAP_SIZE] = [0; MAP_SIZE];
 
-#[derive(Debug, Deserialize)]
-struct RawDistances(HashMap<String, u32>);
-
 pub fn main() -> Result<(), Error> {
-    // 1. Scheduler
-    let dist_scheduler = DirectedDistanceScheduler::new("distances.json", 5.0);
+    let dist_scheduler = DirectedDistanceScheduler::new("distances.json", 5.0)?;
 
     #[allow(static_mut_refs)]
     let observer = unsafe { StdMapObserver::new("signals", &mut SIGNALS) };
@@ -61,21 +55,19 @@ pub fn main() -> Result<(), Error> {
         let buf = bytes.as_ref();
 
         unsafe {
-            std::ptr::write_bytes(std::ptr::addr_of_mut!(SIGNALS) as *mut u8, 0, MAP_SIZE);
             target_function(buf.as_ptr(), buf.len());
         }
 
         ExitKind::Ok
     };
 
-    #[allow(deprecated)]
-    let mut executor = InProcessExecutor::new(
-        &mut harness,
-        tuple_list!(observer),
-        &mut fuzzer,
-        &mut state,
-        &mut mgr,
-    )?;
+    let mut executor = InProcessExecutor::builder()
+        .harness(&mut harness)
+        .observers(tuple_list!(observer))
+        .fuzzer(&mut fuzzer)
+        .state(&mut state)
+        .event_mgr(&mut mgr)
+        .build::<BytesInput, CrashFeedback>()?;
 
     if state.corpus().count() == 0 {
         let initial_seed = BytesInput::new(vec![b'A', b'B', b'C']);

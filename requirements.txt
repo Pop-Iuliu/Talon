@@ -1,0 +1,2 @@
+angr==9.3.4
+networkx==3.3
