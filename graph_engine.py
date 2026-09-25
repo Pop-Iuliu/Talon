@@ -7,7 +7,7 @@ import networkx as nx
 from capstone import CS_ARCH_X86, CS_MODE_64, Cs
 from capstone.x86 import X86_OP_IMM
 
-MAP_SIZE = 65536
+MAP_SIZE = 4096
 SCHEMA_VERSION = 1
 HIT_BLOCK_SYMBOL = "hit_block"
 HIT_BLOCK_ARG_REG = "edi"
