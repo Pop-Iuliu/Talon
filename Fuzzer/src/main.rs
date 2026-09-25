@@ -17,13 +17,12 @@ use libafl::{
 use libafl_bolts::{current_nanos, rands::StdRand, tuples::tuple_list};
 
 mod scheduler;
-use scheduler::DirectedDistanceScheduler;
+use scheduler::{DirectedDistanceScheduler, MAP_SIZE};
 
 extern "C" {
     fn target_function(data: *const u8, size: usize);
 }
 
-const MAP_SIZE: usize = 65536;
 #[no_mangle]
 static mut SIGNALS: [u8; MAP_SIZE] = [0; MAP_SIZE];
 

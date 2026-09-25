@@ -13,7 +13,7 @@ jobs:
       - name: Install pinned toolchain
         run: rustup show active-toolchain
       - name: Compile fuzz target
-        run: gcc -shared -fPIC Tests/if_nest.c -o Tests/libif_nest.so
+        run: gcc -shared -fPIC -O0 -fno-inline Tests/if_nest.c -o Tests/libif_nest.so
       - name: Format
         run: cargo fmt --check
         working-directory: Fuzzer
@@ -39,8 +39,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
       - name: Compile fuzz target
-        run: gcc -shared -fPIC Tests/if_nest.c -o Tests/libif_nest.so
+        run: gcc -shared -fPIC -O0 -fno-inline Tests/if_nest.c -o Tests/libif_nest.so
+      - name: Test
+        run: python3 -m pytest tests/
       - name: Smoke run graph engine
         run: |
-          python3 graph_engine.py Tests/libif_nest.so target_function --out distances_ci.json
-          python3 -c "import json; d = json.load(open('distances_ci.json')); assert d, 'empty distance map'; print('loaded', len(d), 'distances')"
+          python3 graph_engine.py Tests/libif_nest.so target_function --target-id 103 --out distances_ci.json
+          python3 -c "import json; d = json.load(open('distances_ci.json')); assert d['version'] == 1 and d['target_id'] == 103 and d['distances']['103'] == 0, d"
