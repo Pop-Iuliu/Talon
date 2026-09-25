@@ -60,11 +60,29 @@ The target is selected with `--target-id N` (a `hit_block` id) or
 `--target-addr 0x…` (a basic block address). The output has the schema
 
 ```
-{"version": 1, "target_id": 103, "map_size": 65536, "distances": {"100": 6, ...}}
+{"version": 1, "target_id": 103, "map_size": 4096, "distances": {"100": 6, ...}}
 ```
 
 The Rust loader rejects a wrong version, a mismatched map size and IDs beyond
 the map size.
+
+The fuzzer takes flags: `--distances PATH`, `--cooling-secs SECS`,
+`--seed N` (random by default, printed at startup), `--crashes-dir DIR`, and
+`--scheduler {directed,queue,rand}` for the baselines. Mutations per seed go
+through a power schedule (`PowerMutationalStage`): near and cold seeds get
+more mutations, and the baselines get a fixed budget.
+
+## Benchmark
+
+```
+./bench.sh
+```
+
+Builds the harder `Tests/if_nest_hard.c` target (ten magic bytes plus decoy
+branches), runs 10 paired trials per scheduler with a 60 s budget, and prints
+time-to-exposure statistics (median, Vargha-Delaney A12, Mann-Whitney U).
+The current numbers and the reading of the negative result are in
+`docs/evaluation.md`.
 
 ## Known limitations
 
@@ -74,6 +92,6 @@ the map size.
   (`-O0 -fno-inline`); other optimization levels may move argument setup
   across block boundaries.
 - Hand-written `hit_block` instrumentation instead of a real coverage pass.
-- The scheduler only selects by distance; seed energy and the power schedule
-  are not wired up yet (Sprint 3).
+- The benchmark shows no significant time-to-exposure gain for the directed
+  scheduler over the queue and rand baselines; see `docs/evaluation.md`.
 - Single-threaded, in-process fuzzing: the campaign ends at the first crash.

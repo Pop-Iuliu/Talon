@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-extern uint8_t SIGNALS[65536];
+extern uint8_t SIGNALS[4096];
 
 void hit_block(size_t block_id) {
     SIGNALS[block_id]++;
