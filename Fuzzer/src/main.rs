@@ -39,17 +39,27 @@ enum SchedulerKind {
 }
 
 impl FromStr for SchedulerKind {
-    type Err = Error;
+    type Err = String;
 
-    fn from_str(s: &str) -> Result<Self, Error> {
+    fn from_str(s: &str) -> Result<Self, String> {
         match s {
             "directed" => Ok(Self::Directed),
             "queue" => Ok(Self::Queue),
             "rand" => Ok(Self::Rand),
-            other => Err(Error::illegal_argument(format!(
-                "unknown scheduler '{other}' (expected directed, queue or rand)"
-            ))),
+            other => Err(format!(
+                "unknown --scheduler kind '{other}' (expected directed, queue or rand)"
+            )),
         }
+    }
+}
+
+impl std::fmt::Display for SchedulerKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Directed => "directed",
+            Self::Queue => "queue",
+            Self::Rand => "rand",
+        })
     }
 }
 
@@ -125,9 +135,19 @@ impl Default for Args {
     }
 }
 
-const USAGE: &str = "usage: dgf_core [--distances PATH] [--cooling-secs SECS] [--seed N] [--crashes-dir DIR] [--scheduler {directed,queue,rand}]";
+const USAGE: &str = "\
+talon - directed greybox fuzzer
 
-fn parse_args() -> Result<Args, Error> {
+usage: dgf_core [flags]
+
+  --distances PATH      distance map to load (default: distances.json)
+  --cooling-secs SECS   annealing window in seconds (default: 5)
+  --seed N              rng seed, printed so runs can be reproduced
+  --crashes-dir DIR     where crash inputs are saved (default: ./crashes)
+  --scheduler KIND      directed, queue or rand (default: directed)
+  --help                print this message and exit";
+
+fn parse_args() -> Result<Args, String> {
     let mut args = Args {
         seed: current_nanos(),
         ..Args::default()
@@ -145,15 +165,15 @@ fn parse_args() -> Result<Args, Error> {
             }
             "--cooling-secs" => {
                 let value = flags.next().ok_or_else(|| missing_value(&flag))?;
-                args.cooling_secs = value.parse().map_err(|_| {
-                    Error::illegal_argument(format!("invalid --cooling-secs: {value}"))
-                })?;
+                args.cooling_secs = value
+                    .parse()
+                    .map_err(|_| format!("--cooling-secs: '{value}' is not a number"))?;
             }
             "--seed" => {
                 let value = flags.next().ok_or_else(|| missing_value(&flag))?;
                 args.seed = value
                     .parse()
-                    .map_err(|_| Error::illegal_argument(format!("invalid --seed: {value}")))?;
+                    .map_err(|_| format!("--seed: '{value}' is not an integer"))?;
             }
             "--crashes-dir" => {
                 args.crashes_dir = flags.next().ok_or_else(|| missing_value(&flag))?.into();
@@ -162,23 +182,37 @@ fn parse_args() -> Result<Args, Error> {
                 let value = flags.next().ok_or_else(|| missing_value(&flag))?;
                 args.scheduler = value.parse()?;
             }
-            other => {
-                return Err(Error::illegal_argument(format!(
-                    "unknown flag {other}\n{USAGE}"
-                )))
-            }
+            other => return Err(format!("unknown flag {other}")),
         }
     }
     Ok(args)
 }
 
-fn missing_value(flag: &str) -> Error {
-    Error::illegal_argument(format!("missing value for {flag}\n{USAGE}"))
+fn missing_value(flag: &str) -> String {
+    format!("{flag} needs a value")
 }
 
-fn main() -> Result<(), Error> {
-    let args = parse_args()?;
+fn main() {
+    let args = match parse_args() {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("error: {message}\n\n{USAGE}");
+            std::process::exit(2);
+        }
+    };
     println!("random seed: {} (pass --seed to reproduce)", args.seed);
+
+    if let Err(e) = run(args) {
+        eprintln!("error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn run(args: Args) -> Result<(), Error> {
+    println!(
+        "scheduler: {}, cooling window {}s",
+        args.scheduler, args.cooling_secs
+    );
 
     let scheduler = match args.scheduler {
         SchedulerKind::Directed => TalonScheduler::Directed(DirectedDistanceScheduler::new(
@@ -200,7 +234,7 @@ fn main() -> Result<(), Error> {
     let mut state = StdState::new(
         StdRand::with_seed(args.seed),
         InMemoryCorpus::new(),
-        OnDiskCorpus::new(args.crashes_dir).expect("Failed to create crashes dir"),
+        OnDiskCorpus::new(&args.crashes_dir).expect("Failed to create crashes dir"),
         &mut feedback,
         &mut objective,
     )?;

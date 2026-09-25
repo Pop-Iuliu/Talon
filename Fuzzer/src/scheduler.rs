@@ -144,9 +144,9 @@ impl DirectedDistanceScheduler {
         })?;
         let (distances, target_id) = parse_distance_file(&json)?;
         println!(
-            "directed scheduler: loaded {} distances, target id {:?}",
+            "directed scheduler: loaded {} distances, target id {}",
             distances.len(),
-            target_id
+            target_id.map_or_else(|| "none".to_string(), |id| id.to_string())
         );
 
         Ok(Self::with_clock(
@@ -228,7 +228,7 @@ where
             .set_parent_id_optional(current_id);
 
         if let Some((matched, distance)) = self.last_distance.take() {
-            println!("seed {id:?}: {matched} matched blocks, distance {distance:.2}");
+            println!("seed {id}: {matched} matched blocks, distance {distance:.2}");
 
             state
                 .corpus()
