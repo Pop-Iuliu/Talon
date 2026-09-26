@@ -143,11 +143,16 @@ impl DirectedDistanceScheduler {
             Error::os_error(e, format!("failed to read distance map {}", path.display()))
         })?;
         let (distances, target_id) = parse_distance_file(&json)?;
-        println!(
-            "directed scheduler: loaded {} distances, target id {:?}",
+        crate::ui::line(&format!(
+            "{} {} distances {} target id {}",
+            crate::ui::green("✓"),
             distances.len(),
-            target_id
-        );
+            crate::ui::dim("·"),
+            target_id.map_or_else(
+                || crate::ui::dim("none"),
+                |id| crate::ui::cyan(&id.to_string())
+            )
+        ));
 
         Ok(Self::with_clock(
             distances,
@@ -228,7 +233,15 @@ where
             .set_parent_id_optional(current_id);
 
         if let Some((matched, distance)) = self.last_distance.take() {
-            println!("seed {id:?}: {matched} matched blocks, distance {distance:.2}");
+            crate::ui::line(&format!(
+                "{} seed {} {} {} blocks {} d {:.2}",
+                crate::ui::dim("·"),
+                id,
+                crate::ui::dim("·"),
+                matched,
+                crate::ui::dim("·"),
+                distance
+            ));
 
             state
                 .corpus()
