@@ -8,7 +8,6 @@ use libafl::{
     feedbacks::{CrashFeedback, MaxMapFeedback},
     fuzzer::{Evaluator, Fuzzer, StdFuzzer},
     inputs::{BytesInput, HasTargetBytes},
-    monitors::SimpleMonitor,
     mutators::{havoc_mutations::havoc_mutations, scheduled::HavocScheduledMutator},
     observers::StdMapObserver,
     schedulers::{RandScheduler, Scheduler},
@@ -19,7 +18,9 @@ use libafl::{
 use libafl_bolts::{current_nanos, rands::StdRand, tuples::tuple_list};
 
 mod scheduler;
+mod ui;
 use scheduler::{DirectedDistanceScheduler, EnergyScore, QueueScheduler, MAP_SIZE};
+use ui::TalonMonitor;
 
 type TalonState =
     StdState<InMemoryCorpus<BytesInput>, BytesInput, StdRand, OnDiskCorpus<BytesInput>>;
@@ -192,28 +193,51 @@ fn missing_value(flag: &str) -> String {
     format!("{flag} needs a value")
 }
 
+fn print_startup(args: &Args) {
+    ui::line(&format!(
+        "{} {}",
+        ui::bold("talon"),
+        ui::dim("· directed greybox fuzzer")
+    ));
+    ui::line("");
+    let field = |label: &str, value: String| {
+        ui::line(&format!("{} {}", ui::dim(&format!("{label:<10}")), value));
+    };
+    field("seed", args.seed.to_string());
+    if args.scheduler == SchedulerKind::Directed {
+        field(
+            "scheduler",
+            format!(
+                "{} {}",
+                args.scheduler,
+                ui::dim(&format!("· cooling {}s", args.cooling_secs))
+            ),
+        );
+    } else {
+        field("scheduler", args.scheduler.to_string());
+    }
+    field("distances", args.distances.display().to_string());
+    field("crashes", args.crashes_dir.display().to_string());
+    ui::line("");
+}
+
 fn main() {
     let args = match parse_args() {
         Ok(args) => args,
         Err(message) => {
-            eprintln!("error: {message}\n\n{USAGE}");
+            eprintln!("{} {message}\n\n{USAGE}", ui::red("error:"));
             std::process::exit(2);
         }
     };
-    println!("random seed: {} (pass --seed to reproduce)", args.seed);
+    print_startup(&args);
 
     if let Err(e) = run(args) {
-        eprintln!("error: {e}");
+        ui::line(&format!("{} {e}", ui::red("error:")));
         std::process::exit(1);
     }
 }
 
 fn run(args: Args) -> Result<(), Error> {
-    println!(
-        "scheduler: {}, cooling window {}s",
-        args.scheduler, args.cooling_secs
-    );
-
     let scheduler = match args.scheduler {
         SchedulerKind::Directed => TalonScheduler::Directed(DirectedDistanceScheduler::new(
             &args.distances,
@@ -228,7 +252,7 @@ fn run(args: Args) -> Result<(), Error> {
     let mut feedback = MaxMapFeedback::new(&observer);
     let mut objective = CrashFeedback::new();
 
-    let monitor = SimpleMonitor::new(|s| println!("{s}"));
+    let monitor = TalonMonitor::default();
     let mut mgr = SimpleEventManager::new(monitor);
 
     let mut state = StdState::new(
